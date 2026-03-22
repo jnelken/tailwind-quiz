@@ -22,33 +22,33 @@ function App() {
       .join('\n')
   }
 
-  const checkAnswer = () => {
-    const trimmedAnswer = userAnswer.trim().toLowerCase()
-    let correctAnswer: string
-
+  const isAnswerCorrect = (answer: string) => {
+    const trimmedAnswer = answer.trim().toLowerCase()
     if (isFlipped) {
-      // Tailwind to CSS mode - check if user's CSS matches
-      correctAnswer = formatCSS(currentQuestion.css).toLowerCase().replace(/\s+/g, ' ')
-      const userFormattedAnswer = trimmedAnswer.replace(/\s+/g, ' ')
-
-      if (userFormattedAnswer === correctAnswer) {
-        setFeedback('correct')
-        setScore(prev => ({ correct: prev.correct + 1, total: prev.total + 1 }))
-      } else {
-        setFeedback('incorrect')
-        setScore(prev => ({ ...prev, total: prev.total + 1 }))
-      }
+      const correctAnswer = formatCSS(currentQuestion.css).toLowerCase().replace(/\s+/g, ' ')
+      return trimmedAnswer.replace(/\s+/g, ' ') === correctAnswer
     } else {
-      // CSS to Tailwind mode
-      correctAnswer = currentQuestion.tailwindClass.toLowerCase()
+      return trimmedAnswer === currentQuestion.tailwindClass.toLowerCase()
+    }
+  }
 
-      if (trimmedAnswer === correctAnswer) {
-        setFeedback('correct')
-        setScore(prev => ({ correct: prev.correct + 1, total: prev.total + 1 }))
-      } else {
-        setFeedback('incorrect')
-        setScore(prev => ({ ...prev, total: prev.total + 1 }))
-      }
+  const checkAnswer = () => {
+    if (isAnswerCorrect(userAnswer)) {
+      setFeedback('correct')
+      setScore(prev => ({ correct: prev.correct + 1, total: prev.total + 1 }))
+    } else {
+      setFeedback('incorrect')
+      setScore(prev => ({ ...prev, total: prev.total + 1 }))
+    }
+  }
+
+  const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const value = e.target.value
+    setUserAnswer(value)
+    if (isAnswerCorrect(value)) {
+      setFeedback('correct')
+      setScore(prev => ({ correct: prev.correct + 1, total: prev.total + 1 }))
+      setTimeout(nextQuestion, 800)
     }
   }
 
@@ -137,7 +137,7 @@ function App() {
             </h2>
             <textarea
               value={userAnswer}
-              onChange={(e) => setUserAnswer(e.target.value)}
+              onChange={handleChange}
               onKeyPress={handleKeyPress}
               placeholder={isFlipped ? "Enter CSS properties..." : "Enter Tailwind class..."}
               className="w-full h-32 bg-slate-900 text-white rounded-lg p-4 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
