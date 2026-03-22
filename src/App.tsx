@@ -1,15 +1,58 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { quizData, QuizQuestion } from './quizData'
+
+function getDocsUrl(css: { [key: string]: string }) {
+  const firstKey = Object.keys(css)[0]
+  const baseProp = firstKey.replace(/-(top|right|bottom|left|start|end)$/, '')
+  return `https://tailwindcss.com/docs/${baseProp}`
+}
+
+interface PersistedState {
+  wrongIds: number[]
+  currentIndex: number
+}
+
+async function fetchState(): Promise<{ wrongIds: Set<number>; currentIndex: number }> {
+  try {
+    const res = await fetch('/api/wrong-answers')
+    const data: PersistedState = await res.json()
+    return { wrongIds: new Set(data.wrongIds ?? data), currentIndex: data.currentIndex ?? 0 }
+  } catch {
+    return { wrongIds: new Set(), currentIndex: 0 }
+  }
+}
+
+async function persistState(ids: Set<number>, currentIndex: number) {
+  await fetch('/api/wrong-answers', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ wrongIds: [...ids], currentIndex }),
+  })
+}
 
 function App() {
   const [currentIndex, setCurrentIndex] = useState(0)
   const [userAnswer, setUserAnswer] = useState('')
   const [feedback, setFeedback] = useState<'correct' | 'incorrect' | null>(null)
-  const [isFlipped, setIsFlipped] = useState(false) // false = CSS to Tailwind, true = Tailwind to CSS
+  const [isFlipped, setIsFlipped] = useState(false)
   const [hintsEnabled, setHintsEnabled] = useState(false)
   const [score, setScore] = useState({ correct: 0, total: 0 })
+  const [reviewMode, setReviewMode] = useState(false)
+  const [wrongIds, setWrongIds] = useState<Set<number>>(new Set())
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
 
-  const currentQuestion = quizData[currentIndex]
+  useEffect(() => {
+    fetchState().then(({ wrongIds, currentIndex }) => {
+      setWrongIds(wrongIds)
+      setCurrentIndex(currentIndex)
+    })
+  }, [])
+
+  const activeQuestions = reviewMode
+    ? quizData.filter(q => wrongIds.has(q.id))
+    : quizData
+
+  const currentQuestion = activeQuestions[currentIndex] ?? quizData[0]
 
   const formatCSS = (css: { [key: string]: string }, showHints: boolean = false) => {
     return Object.entries(css)
@@ -39,6 +82,12 @@ function App() {
     } else {
       setFeedback('incorrect')
       setScore(prev => ({ ...prev, total: prev.total + 1 }))
+      setWrongIds(prev => {
+        const next = new Set(prev)
+        next.add(currentQuestion.id)
+        persistState(next, currentIndex)
+        return next
+      })
     }
   }
 
@@ -53,13 +102,22 @@ function App() {
   }
 
   const nextQuestion = () => {
-    setCurrentIndex((prev) => (prev + 1) % quizData.length)
+    setCurrentIndex((prev) => {
+      const next = (prev + 1) % activeQuestions.length
+      persistState(wrongIds, next)
+      return next
+    })
     setUserAnswer('')
     setFeedback(null)
+    setTimeout(() => textareaRef.current?.focus(), 0)
   }
 
   const prevQuestion = () => {
-    setCurrentIndex((prev) => (prev - 1 + quizData.length) % quizData.length)
+    setCurrentIndex((prev) => {
+      const next = (prev - 1 + activeQuestions.length) % activeQuestions.length
+      persistState(wrongIds, next)
+      return next
+    })
     setUserAnswer('')
     setFeedback(null)
   }
@@ -75,6 +133,26 @@ function App() {
       checkAnswer()
     } else if (e.key === 'Enter' && feedback) {
       nextQuestion()
+    }
+  }
+
+  const handleReviewToggle = () => {
+    const next = !reviewMode
+    if (next && wrongIds.size === 0) return
+    setReviewMode(next)
+    setCurrentIndex(0)
+    setUserAnswer('')
+    setFeedback(null)
+  }
+
+  const clearWrongAnswers = () => {
+    const empty = new Set<number>()
+    persistState(empty, currentIndex)
+    setWrongIds(empty)
+    if (reviewMode) {
+      setReviewMode(false)
+      setCurrentIndex(0)
+      setFeedback(null)
     }
   }
 
@@ -111,7 +189,36 @@ function App() {
               {hintsEnabled ? '💡 Hints: ON' : '💡 Hints: OFF'}
             </button>
           )}
+
+          <button
+            onClick={handleReviewToggle}
+            disabled={!reviewMode && wrongIds.size === 0}
+            className={`px-6 py-3 rounded-lg font-semibold transition-colors ${
+              reviewMode
+                ? 'bg-red-600 hover:bg-red-700'
+                : wrongIds.size === 0
+                  ? 'bg-gray-700 opacity-50 cursor-not-allowed'
+                  : 'bg-orange-600 hover:bg-orange-700'
+            }`}
+          >
+            📋 Review Wrong ({wrongIds.size})
+          </button>
+
+          {wrongIds.size > 0 && (
+            <button
+              onClick={clearWrongAnswers}
+              className="px-6 py-3 rounded-lg font-semibold transition-colors bg-gray-600 hover:bg-gray-700"
+            >
+              🗑 Clear Wrong
+            </button>
+          )}
         </div>
+
+        {reviewMode && (
+          <div className="text-center mb-4 text-orange-400 font-semibold">
+            Review Mode — {activeQuestions.length} question{activeQuestions.length !== 1 ? 's' : ''} to review
+          </div>
+        )}
 
         {/* Quiz Content */}
         <div className="grid md:grid-cols-2 gap-8 mb-8">
@@ -136,6 +243,7 @@ function App() {
               {isFlipped ? 'Write the CSS' : 'Write the Tailwind Class'}
             </h2>
             <textarea
+              ref={textareaRef}
               value={userAnswer}
               onChange={handleChange}
               onKeyPress={handleKeyPress}
@@ -152,7 +260,7 @@ function App() {
                 <p className="font-bold mb-2">
                   {feedback === 'correct' ? '✅ Correct!' : '❌ Incorrect'}
                 </p>
-                <p className="text-sm">
+                <p className="text-sm mb-2">
                   <span className="font-semibold">Answer: </span>
                   {isFlipped ? (
                     <pre className="inline text-green-300">{formatCSS(currentQuestion.css)}</pre>
@@ -160,6 +268,16 @@ function App() {
                     <code className="text-green-300">{currentQuestion.tailwindClass}</code>
                   )}
                 </p>
+                {feedback === 'incorrect' && (
+                  <a
+                    href={getDocsUrl(currentQuestion.css)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-block text-sm text-blue-400 hover:text-blue-300 underline"
+                  >
+                    📖 View Tailwind docs →
+                  </a>
+                )}
               </div>
             )}
           </div>
@@ -200,7 +318,7 @@ function App() {
 
         {/* Progress */}
         <div className="text-center mt-8 text-gray-400">
-          Question {currentIndex + 1} of {quizData.length}
+          Question {currentIndex + 1} of {activeQuestions.length}
         </div>
       </div>
     </div>
