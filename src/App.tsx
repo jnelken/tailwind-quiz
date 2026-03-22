@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { quizData, QuizQuestion } from './quizData'
+import { quizData } from './quizData'
 
 function getDocsUrl(css: { [key: string]: string }) {
   const firstKey = Object.keys(css)[0]
@@ -10,23 +10,28 @@ function getDocsUrl(css: { [key: string]: string }) {
 interface PersistedState {
   wrongIds: number[]
   currentIndex: number
+  seenIds: number[]
 }
 
-async function fetchState(): Promise<{ wrongIds: Set<number>; currentIndex: number }> {
+async function fetchState(): Promise<{ wrongIds: Set<number>; seenIds: Set<number>; currentIndex: number }> {
   try {
     const res = await fetch('/api/wrong-answers')
     const data: PersistedState = await res.json()
-    return { wrongIds: new Set(data.wrongIds ?? data), currentIndex: data.currentIndex ?? 0 }
+    return {
+      wrongIds: new Set(data.wrongIds ?? []),
+      seenIds: new Set(data.seenIds ?? []),
+      currentIndex: data.currentIndex ?? 0,
+    }
   } catch {
-    return { wrongIds: new Set(), currentIndex: 0 }
+    return { wrongIds: new Set(), seenIds: new Set(), currentIndex: 0 }
   }
 }
 
-async function persistState(ids: Set<number>, currentIndex: number) {
+async function persistState(wrongIds: Set<number>, seenIds: Set<number>, currentIndex: number) {
   await fetch('/api/wrong-answers', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ wrongIds: [...ids], currentIndex }),
+    body: JSON.stringify({ wrongIds: [...wrongIds], seenIds: [...seenIds], currentIndex }),
   })
 }
 
@@ -39,12 +44,23 @@ function App() {
   const [score, setScore] = useState({ correct: 0, total: 0 })
   const [reviewMode, setReviewMode] = useState(false)
   const [wrongIds, setWrongIds] = useState<Set<number>>(new Set())
+  const [seenIds, setSeenIds] = useState<Set<number>>(new Set())
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
-    fetchState().then(({ wrongIds, currentIndex }) => {
+    fetchState().then(({ wrongIds, seenIds, currentIndex }) => {
       setWrongIds(wrongIds)
+      setSeenIds(seenIds)
       setCurrentIndex(currentIndex)
+      // Mark initial question as seen
+      setSeenIds(prev => {
+        const q = quizData[currentIndex]
+        if (!q || prev.has(q.id)) return prev
+        const next = new Set(prev)
+        next.add(q.id)
+        persistState(wrongIds, next, currentIndex)
+        return next
+      })
     })
   }, [])
 
@@ -56,12 +72,7 @@ function App() {
 
   const formatCSS = (css: { [key: string]: string }, showHints: boolean = false) => {
     return Object.entries(css)
-      .map(([property, value]) => {
-        if (showHints) {
-          return `${property}: ____;`
-        }
-        return `${property}: ${value};`
-      })
+      .map(([property, value]) => showHints ? `${property}: ____;` : `${property}: ${value};`)
       .join('\n')
   }
 
@@ -75,6 +86,14 @@ function App() {
     }
   }
 
+  const markSeen = (questionId: number, idx: number, currentWrongIds: Set<number>, currentSeenIds: Set<number>) => {
+    if (currentSeenIds.has(questionId)) return currentSeenIds
+    const next = new Set(currentSeenIds)
+    next.add(questionId)
+    persistState(currentWrongIds, next, idx)
+    return next
+  }
+
   const checkAnswer = () => {
     if (isAnswerCorrect(userAnswer)) {
       setFeedback('correct')
@@ -85,7 +104,7 @@ function App() {
       setWrongIds(prev => {
         const next = new Set(prev)
         next.add(currentQuestion.id)
-        persistState(next, currentIndex)
+        persistState(next, seenIds, currentIndex)
         return next
       })
     }
@@ -104,7 +123,9 @@ function App() {
   const nextQuestion = () => {
     setCurrentIndex((prev) => {
       const next = (prev + 1) % activeQuestions.length
-      persistState(wrongIds, next)
+      const nextId = activeQuestions[next]?.id
+      setSeenIds(s => nextId ? markSeen(nextId, next, wrongIds, s) : s)
+      persistState(wrongIds, seenIds, next)
       return next
     })
     setUserAnswer('')
@@ -115,11 +136,35 @@ function App() {
   const prevQuestion = () => {
     setCurrentIndex((prev) => {
       const next = (prev - 1 + activeQuestions.length) % activeQuestions.length
-      persistState(wrongIds, next)
+      const nextId = activeQuestions[next]?.id
+      setSeenIds(s => nextId ? markSeen(nextId, next, wrongIds, s) : s)
+      persistState(wrongIds, seenIds, next)
       return next
     })
     setUserAnswer('')
     setFeedback(null)
+    setTimeout(() => textareaRef.current?.focus(), 0)
+  }
+
+  const navigateToQuestion = (questionId: number) => {
+    const idx = quizData.findIndex(q => q.id === questionId)
+    if (idx === -1) return
+    if (reviewMode) setReviewMode(false)
+    setSeenIds(s => markSeen(questionId, idx, wrongIds, s))
+    persistState(wrongIds, seenIds, idx)
+    setCurrentIndex(idx)
+    setUserAnswer('')
+    setFeedback(null)
+    setTimeout(() => textareaRef.current?.focus(), 0)
+  }
+
+  const clearCurrentFromWrong = () => {
+    setWrongIds(prev => {
+      const next = new Set(prev)
+      next.delete(currentQuestion.id)
+      persistState(next, seenIds, currentIndex)
+      return next
+    })
   }
 
   const handleFlipToggle = () => {
@@ -145,16 +190,10 @@ function App() {
     setFeedback(null)
   }
 
-  const clearWrongAnswers = () => {
-    const empty = new Set<number>()
-    persistState(empty, currentIndex)
-    setWrongIds(empty)
-    if (reviewMode) {
-      setReviewMode(false)
-      setCurrentIndex(0)
-      setFeedback(null)
-    }
-  }
+  const isCurrentWrong = wrongIds.has(currentQuestion.id)
+
+  // Build seen question cards from full quizData order
+  const seenQuestions = quizData.filter(q => seenIds.has(q.id))
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 text-white p-8">
@@ -169,7 +208,7 @@ function App() {
         </div>
 
         {/* Controls */}
-        <div className="flex justify-center gap-6 mb-8 flex-wrap">
+        <div className="flex justify-center gap-6 mb-6 flex-wrap">
           <button
             onClick={handleFlipToggle}
             className="bg-purple-600 hover:bg-purple-700 px-6 py-3 rounded-lg font-semibold transition-colors"
@@ -181,9 +220,7 @@ function App() {
             <button
               onClick={() => setHintsEnabled(!hintsEnabled)}
               className={`px-6 py-3 rounded-lg font-semibold transition-colors ${
-                hintsEnabled
-                  ? 'bg-yellow-600 hover:bg-yellow-700'
-                  : 'bg-gray-600 hover:bg-gray-700'
+                hintsEnabled ? 'bg-yellow-600 hover:bg-yellow-700' : 'bg-gray-600 hover:bg-gray-700'
               }`}
             >
               {hintsEnabled ? '💡 Hints: ON' : '💡 Hints: OFF'}
@@ -204,12 +241,12 @@ function App() {
             📋 Review Wrong ({wrongIds.size})
           </button>
 
-          {wrongIds.size > 0 && (
+          {isCurrentWrong && (
             <button
-              onClick={clearWrongAnswers}
+              onClick={clearCurrentFromWrong}
               className="px-6 py-3 rounded-lg font-semibold transition-colors bg-gray-600 hover:bg-gray-700"
             >
-              🗑 Clear Wrong
+              ✕ Clear
             </button>
           )}
         </div>
@@ -319,6 +356,33 @@ function App() {
         {/* Progress */}
         <div className="text-center mt-8 text-gray-400">
           Question {currentIndex + 1} of {activeQuestions.length}
+        </div>
+
+        {/* Question cards */}
+        <div className="flex flex-wrap justify-center gap-1.5 mt-6">
+          {quizData.map(q => {
+            const isCurrent = q.id === currentQuestion.id
+            const isWrong = wrongIds.has(q.id)
+            const isSeen = seenIds.has(q.id)
+            return (
+              <button
+                key={q.id}
+                onClick={() => isSeen && navigateToQuestion(q.id)}
+                disabled={!isSeen}
+                className={`w-8 h-8 text-xs font-bold rounded transition-colors ${
+                  isCurrent
+                    ? 'bg-purple-500 text-white ring-2 ring-white'
+                    : isWrong
+                      ? 'bg-red-700 hover:bg-red-600 text-white'
+                      : isSeen
+                        ? 'bg-slate-600 hover:bg-slate-500 text-gray-300'
+                        : 'bg-slate-800 text-slate-600 cursor-default'
+                }`}
+              >
+                {q.id}
+              </button>
+            )
+          })}
         </div>
       </div>
     </div>
