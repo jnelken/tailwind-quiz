@@ -192,9 +192,6 @@ function App() {
 
   const isCurrentWrong = wrongIds.has(currentQuestion.id)
 
-  // Build seen question cards from full quizData order
-  const seenQuestions = quizData.filter(q => seenIds.has(q.id))
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 text-white p-8">
       <div className="max-w-6xl mx-auto">
