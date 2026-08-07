@@ -25,3 +25,13 @@ dist-ssr
 
 wrong-answers.json
 .vercel
+*.tsbuildinfo
+
+# superset workspace state
+.superset/
+
+# claude code local settings
+.claude/settings.local.json
+
+# wrapup-repos scratch file
+NEXT-STEPS.md
