@@ -33,5 +33,5 @@ wrong-answers.json
 # claude code local settings
 .claude/settings.local.json
 
-# wrapup-repos scratch file
-NEXT-STEPS.md
+# close-out / wrapup-repos running handoff note
+.claude/IN_PROGRESS.md
