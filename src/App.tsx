@@ -29,10 +29,14 @@ function App() {
   const [wrongIds, setWrongIds] = useState(initialProgress.wrongIds)
   const [seenIds, setSeenIds] = useState(initialProgress.seenIds)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  // In review mode currentIndex points into the filtered wrong-answer list, so only
+  // the full-quiz position is persisted.
+  const quizIndexRef = useRef(initialProgress.currentIndex)
 
   useEffect(() => {
-    saveProgress({ wrongIds, seenIds, currentIndex })
-  }, [wrongIds, seenIds, currentIndex])
+    if (!reviewMode) quizIndexRef.current = currentIndex
+    saveProgress({ wrongIds, seenIds, currentIndex: quizIndexRef.current })
+  }, [wrongIds, seenIds, currentIndex, reviewMode])
 
   const activeQuestions = reviewMode
     ? quizData.filter(q => wrongIds.has(q.id))
