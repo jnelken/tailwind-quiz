@@ -153,7 +153,7 @@ function App() {
     const next = !reviewMode
     if (next && wrongIds.size === 0) return
     setReviewMode(next)
-    setCurrentIndex(0)
+    setCurrentIndex(next ? 0 : quizIndexRef.current)
     setUserAnswer('')
     setFeedback(null)
   }
