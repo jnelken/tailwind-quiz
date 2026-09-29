@@ -1,5 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 import { quizData } from './quizData'
+import { loadProgress, saveProgress, type QuizProgress } from './progressStorage'
+
+const QUESTION_IDS = new Set(quizData.map(q => q.id))
 
 function getDocsUrl(css: { [key: string]: string }) {
   const firstKey = Object.keys(css)[0]
@@ -7,62 +10,29 @@ function getDocsUrl(css: { [key: string]: string }) {
   return `https://tailwindcss.com/docs/${baseProp}`
 }
 
-interface PersistedState {
-  wrongIds: number[]
-  currentIndex: number
-  seenIds: number[]
-}
-
-async function fetchState(): Promise<{ wrongIds: Set<number>; seenIds: Set<number>; currentIndex: number }> {
-  try {
-    const res = await fetch('/api/wrong-answers')
-    const data: PersistedState = await res.json()
-    return {
-      wrongIds: new Set(data.wrongIds ?? []),
-      seenIds: new Set(data.seenIds ?? []),
-      currentIndex: data.currentIndex ?? 0,
-    }
-  } catch {
-    return { wrongIds: new Set(), seenIds: new Set(), currentIndex: 0 }
-  }
-}
-
-async function persistState(wrongIds: Set<number>, seenIds: Set<number>, currentIndex: number) {
-  await fetch('/api/wrong-answers', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ wrongIds: [...wrongIds], seenIds: [...seenIds], currentIndex }),
-  })
+function loadInitialProgress(): QuizProgress {
+  const progress = loadProgress(QUESTION_IDS, quizData.length)
+  const currentId = quizData[progress.currentIndex]?.id
+  if (currentId !== undefined) progress.seenIds.add(currentId)
+  return progress
 }
 
 function App() {
-  const [currentIndex, setCurrentIndex] = useState(0)
+  const [initialProgress] = useState(loadInitialProgress)
+  const [currentIndex, setCurrentIndex] = useState(initialProgress.currentIndex)
   const [userAnswer, setUserAnswer] = useState('')
   const [feedback, setFeedback] = useState<'correct' | 'incorrect' | null>(null)
   const [isFlipped, setIsFlipped] = useState(false)
   const [hintsEnabled, setHintsEnabled] = useState(false)
   const [score, setScore] = useState({ correct: 0, total: 0 })
   const [reviewMode, setReviewMode] = useState(false)
-  const [wrongIds, setWrongIds] = useState<Set<number>>(new Set())
-  const [seenIds, setSeenIds] = useState<Set<number>>(new Set())
+  const [wrongIds, setWrongIds] = useState(initialProgress.wrongIds)
+  const [seenIds, setSeenIds] = useState(initialProgress.seenIds)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
-    fetchState().then(({ wrongIds, seenIds, currentIndex }) => {
-      setWrongIds(wrongIds)
-      setSeenIds(seenIds)
-      setCurrentIndex(currentIndex)
-      // Mark initial question as seen
-      setSeenIds(prev => {
-        const q = quizData[currentIndex]
-        if (!q || prev.has(q.id)) return prev
-        const next = new Set(prev)
-        next.add(q.id)
-        persistState(wrongIds, next, currentIndex)
-        return next
-      })
-    })
-  }, [])
+    saveProgress({ wrongIds, seenIds, currentIndex })
+  }, [wrongIds, seenIds, currentIndex])
 
   const activeQuestions = reviewMode
     ? quizData.filter(q => wrongIds.has(q.id))
@@ -86,11 +56,10 @@ function App() {
     }
   }
 
-  const markSeen = (questionId: number, idx: number, currentWrongIds: Set<number>, currentSeenIds: Set<number>) => {
+  const markSeen = (questionId: number, currentSeenIds: Set<number>) => {
     if (currentSeenIds.has(questionId)) return currentSeenIds
     const next = new Set(currentSeenIds)
     next.add(questionId)
-    persistState(currentWrongIds, next, idx)
     return next
   }
 
@@ -104,7 +73,6 @@ function App() {
       setWrongIds(prev => {
         const next = new Set(prev)
         next.add(currentQuestion.id)
-        persistState(next, seenIds, currentIndex)
         return next
       })
     }
@@ -124,8 +92,7 @@ function App() {
     setCurrentIndex((prev) => {
       const next = (prev + 1) % activeQuestions.length
       const nextId = activeQuestions[next]?.id
-      setSeenIds(s => nextId ? markSeen(nextId, next, wrongIds, s) : s)
-      persistState(wrongIds, seenIds, next)
+      setSeenIds(s => nextId ? markSeen(nextId, s) : s)
       return next
     })
     setUserAnswer('')
@@ -137,8 +104,7 @@ function App() {
     setCurrentIndex((prev) => {
       const next = (prev - 1 + activeQuestions.length) % activeQuestions.length
       const nextId = activeQuestions[next]?.id
-      setSeenIds(s => nextId ? markSeen(nextId, next, wrongIds, s) : s)
-      persistState(wrongIds, seenIds, next)
+      setSeenIds(s => nextId ? markSeen(nextId, s) : s)
       return next
     })
     setUserAnswer('')
@@ -150,8 +116,7 @@ function App() {
     const idx = quizData.findIndex(q => q.id === questionId)
     if (idx === -1) return
     if (reviewMode) setReviewMode(false)
-    setSeenIds(s => markSeen(questionId, idx, wrongIds, s))
-    persistState(wrongIds, seenIds, idx)
+    setSeenIds(s => markSeen(questionId, s))
     setCurrentIndex(idx)
     setUserAnswer('')
     setFeedback(null)
@@ -162,7 +127,6 @@ function App() {
     setWrongIds(prev => {
       const next = new Set(prev)
       next.delete(currentQuestion.id)
-      persistState(next, seenIds, currentIndex)
       return next
     })
   }
