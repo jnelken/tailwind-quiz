@@ -1,14 +1,9 @@
 import { useState, useEffect, useRef } from 'react'
 import { quizData } from './quizData'
 import { loadProgress, saveProgress, type QuizProgress } from './progressStorage'
+import { formatCSS, getDocsUrl, isAnswerCorrect, markSeen } from './quizLogic'
 
 const QUESTION_IDS = new Set(quizData.map(q => q.id))
-
-function getDocsUrl(css: { [key: string]: string }) {
-  const firstKey = Object.keys(css)[0]
-  const baseProp = firstKey.replace(/-(top|right|bottom|left|start|end)$/, '')
-  return `https://tailwindcss.com/docs/${baseProp}`
-}
 
 function loadInitialProgress(): QuizProgress {
   const progress = loadProgress(QUESTION_IDS, quizData.length)
@@ -44,31 +39,8 @@ function App() {
 
   const currentQuestion = activeQuestions[currentIndex] ?? quizData[0]
 
-  const formatCSS = (css: { [key: string]: string }, showHints: boolean = false) => {
-    return Object.entries(css)
-      .map(([property, value]) => showHints ? `${property}: ____;` : `${property}: ${value};`)
-      .join('\n')
-  }
-
-  const isAnswerCorrect = (answer: string) => {
-    const trimmedAnswer = answer.trim().toLowerCase()
-    if (isFlipped) {
-      const correctAnswer = formatCSS(currentQuestion.css).toLowerCase().replace(/\s+/g, ' ')
-      return trimmedAnswer.replace(/\s+/g, ' ') === correctAnswer
-    } else {
-      return trimmedAnswer === currentQuestion.tailwindClass.toLowerCase()
-    }
-  }
-
-  const markSeen = (questionId: number, currentSeenIds: Set<number>) => {
-    if (currentSeenIds.has(questionId)) return currentSeenIds
-    const next = new Set(currentSeenIds)
-    next.add(questionId)
-    return next
-  }
-
   const checkAnswer = () => {
-    if (isAnswerCorrect(userAnswer)) {
+    if (isAnswerCorrect(userAnswer, isFlipped, currentQuestion)) {
       setFeedback('correct')
       setScore(prev => ({ correct: prev.correct + 1, total: prev.total + 1 }))
     } else {
@@ -85,7 +57,7 @@ function App() {
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const value = e.target.value
     setUserAnswer(value)
-    if (isAnswerCorrect(value)) {
+    if (isAnswerCorrect(value, isFlipped, currentQuestion)) {
       setFeedback('correct')
       setScore(prev => ({ correct: prev.correct + 1, total: prev.total + 1 }))
       setTimeout(nextQuestion, 800)
