@@ -73,6 +73,12 @@ describe('quizData', () => {
     }
   })
 
+  it('lists every question in SHIPPED_IDS', () => {
+    for (const q of quizData) {
+      assert.ok(q.id in SHIPPED_IDS, `add ID ${q.id} to SHIPPED_IDS`)
+    }
+  })
+
   it('gives every question an answer key', () => {
     for (const q of quizData) {
       assert.ok(q.tailwindClass.trim().length > 0, `ID ${q.id} has no class`)
