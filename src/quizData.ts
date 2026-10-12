@@ -4,7 +4,7 @@ export interface QuizQuestion {
   css: { [key: string]: string };
 }
 
-export type QuizCategoryId =
+type QuizCategoryId =
   | "layout"
   | "flex-grid"
   | "spacing"
@@ -16,7 +16,7 @@ export type QuizCategoryId =
   | "interactivity"
   | "responsive";
 
-export interface QuizCategory {
+interface QuizCategory {
   id: QuizCategoryId;
   label: string;
   questions: QuizQuestion[];
