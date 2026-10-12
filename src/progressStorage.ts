@@ -27,7 +27,7 @@ function sanitizeIndex(value: unknown, questionCount: number): number {
     : 0
 }
 
-export function emptyProgress(): QuizProgress {
+function emptyProgress(): QuizProgress {
   return { wrongIds: new Set(), seenIds: new Set(), currentIndex: 0 }
 }
 
