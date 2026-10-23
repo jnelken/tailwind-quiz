@@ -27,6 +27,9 @@ wrong-answers.json
 .vercel
 *.tsbuildinfo
 
+# vite dep-optimizer cache
+.vite/
+
 # superset workspace state
 .superset/
 
